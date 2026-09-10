@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from functools import lru_cache
 from typing import Any
 
@@ -9,6 +10,8 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
 from .errors import LLMConfigurationError, LLMResponseError
+
+logger = logging.getLogger(__name__)
 
 
 def _validate_configuration() -> None:
@@ -43,7 +46,14 @@ def _content_as_text(content: Any) -> str:
     return str(content)
 
 
-def invoke_text(system_prompt: str, user_prompt: str) -> str:
+def invoke_text(
+    system_prompt: str,
+    user_prompt: str,
+    *,
+    log_prefix: str = "LLM",
+) -> str:
+    logger.info("%s_SYSTEM_PROMPT\n%s", log_prefix, system_prompt)
+    logger.info("%s_USER_PROMPT\n%s", log_prefix, user_prompt)
     try:
         response = get_chat_model().invoke(
             [SystemMessage(content=system_prompt), HumanMessage(content=user_prompt)]
@@ -51,9 +61,15 @@ def invoke_text(system_prompt: str, user_prompt: str) -> str:
     except LLMConfigurationError:
         raise
     except Exception as exc:
+        logger.exception(
+            "%s_ERROR exception_type=%s",
+            log_prefix,
+            type(exc).__name__,
+        )
         error = WorkflowLLMConnectionError()
         raise error from exc
     text = _content_as_text(response.content).strip()
+    logger.info("%s_RESPONSE\n%s", log_prefix, text)
     if not text:
         raise LLMResponseError()
     return text
@@ -64,18 +80,30 @@ class WorkflowLLMConnectionError(LLMResponseError):
     public_message = "اتصال به مدل بارگذاری‌شده در LM Studio برقرار نشد."
 
 
-def invoke_json(system_prompt: str, user_prompt: str) -> dict[str, Any]:
-    text = invoke_text(system_prompt, user_prompt)
+def invoke_json(
+    system_prompt: str,
+    user_prompt: str,
+    *,
+    log_prefix: str = "LLM",
+) -> dict[str, Any]:
+    text = invoke_text(system_prompt, user_prompt, log_prefix=log_prefix)
     if text.startswith("```"):
         lines = text.splitlines()
         text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
     start = text.find("{")
     if start < 0:
+        logger.error("%s_JSON_PARSE_ERROR reason=no_json_object", log_prefix)
         raise LLMResponseError()
     try:
         value, _ = json.JSONDecoder().raw_decode(text[start:])
     except (json.JSONDecodeError, TypeError) as exc:
+        logger.exception(
+            "%s_JSON_PARSE_ERROR exception_type=%s",
+            log_prefix,
+            type(exc).__name__,
+        )
         raise LLMResponseError() from exc
     if not isinstance(value, dict):
+        logger.error("%s_JSON_PARSE_ERROR reason=not_an_object", log_prefix)
         raise LLMResponseError()
     return value

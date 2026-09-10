@@ -45,7 +45,7 @@ class SQLValidatorTests(SimpleTestCase):
             "WITH metrics AS (SELECT ProjectCode, CPI "
             f"FROM {self.safe_view}) SELECT * FROM metrics"
         )
-        self.assertEqual(result.tables, ("vw_EVMS_Project_Monthly",))
+        self.assertEqual(result.tables, ("dbo.vw_EVMS_Project_Monthly",))
 
     def test_rejects_select_into(self):
         with self.assertRaises(SQLValidationError):

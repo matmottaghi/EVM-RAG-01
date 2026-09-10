@@ -40,7 +40,13 @@ def public_error(exc: Exception) -> tuple[str, str]:
 
 def _record_failure(run: WorkflowRun, exc: Exception) -> WorkflowRun:
     code, message = public_error(exc)
-    logger.exception("workflow_failed run_id=%s code=%s", run.id, code)
+    logger.exception(
+        "WORKFLOW_ERROR run_id=%s thread_id=%s code=%s exception_type=%s",
+        run.id,
+        run.thread_id,
+        code,
+        type(exc).__name__,
+    )
     run.status = WorkflowRun.Status.FAILED
     run.error_message = message
     run.save(update_fields=["status", "error_message", "updated_at"])
@@ -89,9 +95,13 @@ def start_workflow(
         "status": "created",
     }
     logger.info(
-        "workflow_started run_id=%s thread_id=%s prompt=%r",
+        "WORKFLOW_START run_id=%s thread_id=%s",
         run.id,
         run.thread_id,
+    )
+    logger.info(
+        "USER_QUESTION run_id=%s question=%s",
+        run.id,
         run.user_prompt,
     )
     try:
@@ -101,10 +111,10 @@ def start_workflow(
         return _record_failure(run, exc)
 
     logger.info(
-        "dataset_ready run_id=%s sql=%r rows=%s duration_ms=%s",
+        "DATASET_READY run_id=%s row_count=%s columns=%s duration_ms=%s",
         run.id,
-        run.generated_sql,
         getattr(run.dataset_snapshot, "row_count", 0),
+        getattr(run.dataset_snapshot, "columns_json", []),
         run.execution_duration_ms,
     )
     ChatMessage.objects.create(
@@ -146,7 +156,11 @@ def approve_workflow(run: WorkflowRun) -> WorkflowRun:
     try:
         _ensure_checkpoint(run)
         run = _lock_for_decision(run, WorkflowRun.Confirmation.APPROVED)
-        logger.info("dataset_approved run_id=%s thread_id=%s", run.id, run.thread_id)
+        logger.info(
+            "USER_APPROVAL run_id=%s thread_id=%s action=approved",
+            run.id,
+            run.thread_id,
+        )
         result = get_graph().invoke(
             Command(resume={"action": "approved"}),
             config=graph_config(run),
@@ -163,8 +177,9 @@ def approve_workflow(run: WorkflowRun) -> WorkflowRun:
         content=run.analysis,
     )
     logger.info(
-        "workflow_completed run_id=%s chart_spec=%s",
+        "WORKFLOW_COMPLETION run_id=%s thread_id=%s chart_spec=%s",
         run.id,
+        run.thread_id,
         run.chart_spec,
     )
     return run
@@ -191,5 +206,15 @@ def reject_workflow(run: WorkflowRun, *, reason: str = "") -> WorkflowRun:
         role=ChatMessage.Role.SYSTEM,
         content=message,
     )
-    logger.info("dataset_rejected run_id=%s reason=%r", run.id, reason)
+    logger.info(
+        "USER_REJECTION run_id=%s thread_id=%s reason=%s",
+        run.id,
+        run.thread_id,
+        reason,
+    )
+    logger.info(
+        "WORKFLOW_COMPLETION run_id=%s thread_id=%s status=rejected",
+        run.id,
+        run.thread_id,
+    )
     return run

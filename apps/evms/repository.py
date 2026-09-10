@@ -18,6 +18,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 logger = logging.getLogger(__name__)
 
+
 class DatabaseConfigurationError(RuntimeError):
     pass
 
@@ -125,11 +126,7 @@ def _json_safe(value: Any) -> Any:
 
 def execute_query(sql: str) -> QueryResult:
     started = perf_counter()
-
-    logger.info(
-        "Executing EVMS SQL: %s",
-        sql,
-    )
+    logger.info("SQL_EXECUTION_START sql=%s", sql)
 
     try:
         with get_engine().connect() as connection:
@@ -139,14 +136,12 @@ def execute_query(sql: str) -> QueryResult:
             )
 
     except (SQLAlchemyError, pyodbc.Error) as exc:
-        print("=" * 80)
-        print("EVMS SQL EXECUTION ERROR")
-        print("SQL:")
-        print(sql)
-        print("ERROR:")
-        print(repr(exc))
-        print("=" * 80)
-
+        logger.exception(
+            "SQL_EXECUTION_FAILURE exception_type=%s duration_ms=%s sql=%s",
+            type(exc).__name__,
+            round((perf_counter() - started) * 1000),
+            sql,
+        )
         raise DatabaseExecutionError(
             "The EVMS SQL Server query could not be completed."
         ) from exc
@@ -166,11 +161,16 @@ def execute_query(sql: str) -> QueryResult:
         )
     ]
 
+    duration_ms = round((perf_counter() - started) * 1000)
+    logger.info(
+        "SQL_EXECUTION_SUCCESS duration_ms=%s row_count=%s columns=%s",
+        duration_ms,
+        len(rows),
+        columns,
+    )
     return QueryResult(
         columns=columns,
         rows=rows,
         row_count=len(rows),
-        execution_duration_ms=round(
-            (perf_counter() - started) * 1000
-        ),
+        execution_duration_ms=duration_ms,
     )

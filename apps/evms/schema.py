@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
+from typing import Any
 
 
 # Replace or extend this controlled semantic view definition to match the
@@ -106,3 +108,23 @@ def semantic_schema_text() -> str:
     """Return deterministic JSON suitable for the SQL-planning prompt."""
 
     return json.dumps(EVMS_SCHEMA, ensure_ascii=False, indent=2)
+
+
+def get_relevant_schema(columns: Iterable[str]) -> dict[str, dict[str, Any]]:
+    """Return schema metadata only for actual result-column names."""
+
+    definitions: dict[str, dict[str, Any]] = {}
+    for view in EVMS_SCHEMA.values():
+        view_columns = view.get("columns", {})
+        if not isinstance(view_columns, dict):
+            continue
+        for name, metadata in view_columns.items():
+            if isinstance(metadata, dict):
+                definitions.setdefault(str(name).casefold(), metadata)
+
+    relevant: dict[str, dict[str, Any]] = {}
+    for column in columns:
+        metadata = definitions.get(str(column).casefold())
+        if metadata is not None:
+            relevant[str(column)] = dict(metadata)
+    return relevant

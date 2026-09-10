@@ -1,17 +1,21 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
 from typing import Any, Literal
 
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
+from ..context import build_chart_prompt, dataframe_from_state
 from ..errors import InvalidChartSpecError
 from ..llm import invoke_json
 from ..prompts import CHART_SYSTEM_PROMPT
 from ..state import EVMSState
 from .analyze import require_approved
+
+logger = logging.getLogger(__name__)
 
 
 class ChartSpec(BaseModel):
@@ -38,6 +42,11 @@ def validate_chart_spec(payload: dict[str, Any], columns: list[str]) -> ChartSpe
     try:
         spec = ChartSpec.model_validate(payload)
     except ValidationError as exc:
+        logger.warning(
+            "CHART_VALIDATION_FAILURE exception_type=%s spec=%s",
+            type(exc).__name__,
+            payload,
+        )
         raise InvalidChartSpecError() from exc
     available = set(columns)
     requested = set(spec.y)
@@ -46,22 +55,30 @@ def validate_chart_spec(payload: dict[str, Any], columns: list[str]) -> ChartSpe
     if spec.group_by:
         requested.add(spec.group_by)
     if not requested.issubset(available):
+        logger.warning(
+            "CHART_VALIDATION_FAILURE reason=unknown_columns requested=%s available=%s",
+            sorted(requested),
+            sorted(available),
+        )
         raise InvalidChartSpecError()
     if spec.chart_type in {"line", "bar", "scatter", "area"} and not spec.x:
+        logger.warning("CHART_VALIDATION_FAILURE reason=missing_x spec=%s", payload)
         raise InvalidChartSpecError()
+    logger.info("CHART_VALIDATION_SUCCESS spec=%s", spec.model_dump(mode="json"))
     return spec
+
+
 def plan_chart(state: EVMSState) -> dict[str, Any]:
-    rows = (state.get("rows") or [])[:50]
-    context = {
-        "question": state["user_prompt"],
-        "analysis": state.get("analysis"),
-        "columns": state.get("columns") or [],
-        "approved_rows_sample": rows,
-    }
-    return invoke_json(
+    require_approved(state)
+    frame = dataframe_from_state(state)
+    prompt = build_chart_prompt(state["user_prompt"], frame)
+    payload = invoke_json(
         CHART_SYSTEM_PROMPT,
-        json.dumps(context, ensure_ascii=False, default=str),
+        prompt,
+        log_prefix="CHART",
     )
+    logger.info("PARSED_CHART_SPEC spec=%s", payload)
+    return payload
 
 
 def generate_chart_spec(state: EVMSState) -> dict[str, object]:
@@ -91,6 +108,8 @@ def _render_figure(frame: pd.DataFrame, spec: ChartSpec):
         return px.box(**common, x=spec.x, y=spec.y[0], color=spec.group_by)
     numeric = frame[spec.y].apply(pd.to_numeric, errors="coerce")
     return px.imshow(numeric.corr(), text_auto=True, title=spec.title)
+
+
 def render_chart(state: EVMSState) -> dict[str, object]:
     import plotly.io as pio
 
@@ -101,7 +120,7 @@ def render_chart(state: EVMSState) -> dict[str, object]:
     try:
         figure = _render_figure(frame, spec)
         for value in spec.reference_lines:
-            figure.add_hline(value=value, line_dash="dash", line_color="#ef8354")
+            figure.add_hline(y=value, line_dash="dash", line_color="#ef8354")
         figure.update_layout(
             template="plotly_white",
             autosize=True,
@@ -112,5 +131,14 @@ def render_chart(state: EVMSState) -> dict[str, object]:
         )
         payload = json.loads(pio.to_json(figure, validate=True, pretty=False))
     except Exception as exc:
+        logger.exception(
+            "CHART_RENDER_FAILURE exception_type=%s",
+            type(exc).__name__,
+        )
         raise InvalidChartSpecError() from exc
+    logger.info(
+        "CHART_RENDER_SUCCESS chart_type=%s row_count=%s",
+        spec.chart_type,
+        len(frame),
+    )
     return {"chart_payload": payload, "status": "completed"}

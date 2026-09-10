@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from apps.evms.glossary import glossary_text
 from apps.evms.schema import semantic_schema_text
 
@@ -7,6 +9,8 @@ from ..errors import LLMResponseError
 from ..llm import invoke_json
 from ..prompts import SQL_SYSTEM_PROMPT
 from ..state import EVMSState
+
+logger = logging.getLogger(__name__)
 
 
 def generate_sql_plan(
@@ -21,12 +25,18 @@ def generate_sql_plan(
     )
     if correction_context:
         prompt += f"\n\nPreviously rejected request/context:\n{correction_context}"
-    result = invoke_json(SQL_SYSTEM_PROMPT, prompt)
+    result = invoke_json(SQL_SYSTEM_PROMPT, prompt, log_prefix="SQL_PLANNER")
     sql = result.get("sql")
     reason = result.get("reason", "")
     if not isinstance(sql, str) or not sql.strip() or not isinstance(reason, str):
         raise LLMResponseError()
-    return {"sql": sql.strip(), "reason": reason.strip()}
+    parsed = {"sql": sql.strip(), "reason": reason.strip()}
+    logger.info(
+        "PARSED_SQL sql=%s reason=%s",
+        parsed["sql"],
+        parsed["reason"],
+    )
+    return parsed
 
 
 def generate_sql(state: EVMSState) -> dict[str, str]:
