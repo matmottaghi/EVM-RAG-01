@@ -1,0 +1,88 @@
+{% load static %}
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="تحلیل مکالمه‌ای داده‌های مدیریت ارزش کسب‌شده">
+    <title>EVMS Intelligence</title>
+    <link rel="preconnect" href="https://cdn.plot.ly">
+    <link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
+    <script defer src="https://cdn.plot.ly/plotly-3.3.0.min.js"></script>
+    <script defer src="{% static 'js/dashboard.js' %}"></script>
+</head>
+<body>
+    <header class="topbar">
+        <div class="brand-mark" aria-hidden="true">E</div>
+        <div>
+            <h1>EVMS Intelligence</h1>
+            <p>تحلیل داده‌محور عملکرد پروژه</p>
+        </div>
+        <div id="workflow-status" class="status-chip" data-status="idle">
+            <span class="status-dot"></span><span>آماده</span>
+        </div>
+    </header>
+
+    <main class="dashboard">
+        <section class="panel chart-panel" aria-labelledby="chart-heading">
+            <div class="panel-heading">
+                <div><span class="eyebrow">VISUAL INSIGHT</span><h2 id="chart-heading">نمودار تحلیلی</h2></div>
+            </div>
+            <div id="chart-container" class="chart-container">
+                <div id="chart-placeholder" class="placeholder">
+                    <span class="placeholder-icon">⌁</span>
+                    <strong>نمودار پس از تأیید داده ساخته می‌شود</strong>
+                    <small>بزرگ‌نمایی، جابه‌جایی و جزئیات تعاملی فعال خواهد بود.</small>
+                </div>
+            </div>
+        </section>
+
+        <section class="panel chat-panel" aria-labelledby="chat-heading">
+            <div class="panel-heading">
+                <div><span class="eyebrow">CONVERSATION</span><h2 id="chat-heading">دستیار تحلیل</h2></div>
+                <button id="new-thread" class="icon-button" type="button" title="گفت‌وگوی تازه">＋</button>
+            </div>
+            <div id="messages" class="messages" aria-live="polite">
+                <article class="message assistant-message">
+                    <span class="avatar">E</span>
+                    <div><strong>برای شروع آماده‌ام.</strong><p>درباره CPI، SPI، روند هزینه یا زمان‌بندی پروژه‌ها سؤال کنید.</p></div>
+                </article>
+            </div>
+            <form id="chat-form" class="composer">
+                {% csrf_token %}
+                <label class="sr-only" for="message-input">پرسش شما</label>
+                <textarea id="message-input" rows="2" maxlength="4000" placeholder="مثلاً روند CPI و SPI پروژه A در شش ماه اخیر..." required></textarea>
+                <button id="send-button" class="send-button" type="submit">ارسال <span>←</span></button>
+            </form>
+        </section>
+
+        <section class="panel data-panel" aria-labelledby="data-heading">
+            <div class="panel-heading">
+                <div><span class="eyebrow">SOURCE DATA</span><h2 id="data-heading">داده SQL</h2></div>
+                <span id="row-count" class="row-count">۰ ردیف</span>
+            </div>
+            <div id="data-placeholder" class="placeholder data-placeholder">
+                <span class="placeholder-icon">▦</span>
+                <strong>هنوز داده‌ای بازیابی نشده است</strong>
+                <small>نتیجهٔ SQL قبل از هر تحلیل در این بخش نمایش داده می‌شود.</small>
+            </div>
+            <div id="table-wrap" class="table-wrap" hidden>
+                <table id="data-table"><thead></thead><tbody></tbody></table>
+            </div>
+            <div id="pagination" class="pagination" hidden>
+                <button id="prev-page" type="button">قبلی</button>
+                <span id="page-info"></span>
+                <button id="next-page" type="button">بعدی</button>
+            </div>
+            <div class="confirmation-bar">
+                <p id="confirmation-help">ابتدا یک پرسش ارسال کنید.</p>
+                <div class="confirmation-actions">
+                    <button id="reject-button" class="reject-button" type="button" disabled>رد داده</button>
+                    <button id="approve-button" class="approve-button" type="button" disabled>تأیید داده</button>
+                </div>
+            </div>
+        </section>
+    </main>
+    <div id="toast" class="toast" role="alert" hidden></div>
+</body>
+</html>
