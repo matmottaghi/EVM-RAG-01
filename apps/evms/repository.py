@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import math
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -15,6 +16,7 @@ from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import Engine, URL
 from sqlalchemy.exc import SQLAlchemyError
 
+logger = logging.getLogger(__name__)
 
 class DatabaseConfigurationError(RuntimeError):
     pass
@@ -37,24 +39,32 @@ def _connection_url() -> URL:
         raise DatabaseConfigurationError(
             "DB_SERVER and DB_DATABASE must be configured in .env."
         )
+
     query: dict[str, str] = {
         "driver": settings.EVMS_DB_DRIVER,
         "Encrypt": "yes" if settings.EVMS_DB_ENCRYPT else "no",
         "TrustServerCertificate": (
-            "yes" if settings.EVMS_DB_TRUST_SERVER_CERTIFICATE else "no"
+            "yes"
+            if settings.EVMS_DB_TRUST_SERVER_CERTIFICATE
+            else "no"
         ),
-        "Connection Timeout": str(settings.EVMS_DB_CONNECT_TIMEOUT_SECONDS),
     }
+
     if settings.EVMS_DB_TRUSTED_CONNECTION:
         query["trusted_connection"] = "yes"
-        username = password = None
+        username = None
+        password = None
+
     else:
         if not settings.EVMS_DB_USERNAME or not settings.EVMS_DB_PASSWORD:
             raise DatabaseConfigurationError(
-                "DB_USERNAME and DB_PASSWORD are required for SQL authentication."
+                "DB_USERNAME and DB_PASSWORD are required "
+                "for SQL authentication."
             )
+
         username = settings.EVMS_DB_USERNAME
         password = settings.EVMS_DB_PASSWORD
+
     return URL.create(
         "mssql+pyodbc",
         username=username,
@@ -67,18 +77,25 @@ def _connection_url() -> URL:
 
 @lru_cache(maxsize=1)
 def get_engine() -> Engine:
-    engine = create_engine(_connection_url(), pool_pre_ping=True, future=True)
+    engine = create_engine(
+        _connection_url(),
+        pool_pre_ping=True,
+        future=True,
+        connect_args={
+            "timeout": settings.EVMS_DB_CONNECT_TIMEOUT_SECONDS
+        },
+        )
 
-    @event.listens_for(engine, "before_cursor_execute")
-    def set_query_timeout(
-        _connection: Any,
-        cursor: Any,
-        _statement: str,
-        _parameters: Any,
-        _context: Any,
-        _executemany: bool,
-    ) -> None:
-        cursor.timeout = settings.EVMS_DB_QUERY_TIMEOUT_SECONDS
+    # @event.listens_for(engine, "before_cursor_execute")
+    # def set_query_timeout(
+    #     _connection: Any,
+    #     cursor: Any,
+    #     _statement: str,
+    #     _parameters: Any,
+    #     _context: Any,
+    #     _executemany: bool,
+    # ) -> None:
+    #     cursor.timeout = settings.EVMS_DB_QUERY_TIMEOUT_SECONDS
 
     return engine
 
@@ -108,22 +125,52 @@ def _json_safe(value: Any) -> Any:
 
 def execute_query(sql: str) -> QueryResult:
     started = perf_counter()
+
+    logger.info(
+        "Executing EVMS SQL: %s",
+        sql,
+    )
+
     try:
         with get_engine().connect() as connection:
-            frame = pd.read_sql_query(text(sql), connection)
+            frame = pd.read_sql_query(
+                text(sql),
+                connection
+            )
+
     except (SQLAlchemyError, pyodbc.Error) as exc:
+        print("=" * 80)
+        print("EVMS SQL EXECUTION ERROR")
+        print("SQL:")
+        print(sql)
+        print("ERROR:")
+        print(repr(exc))
+        print("=" * 80)
+
         raise DatabaseExecutionError(
             "The EVMS SQL Server query could not be completed."
         ) from exc
 
-    columns = [str(column) for column in frame.columns]
-    rows = [
-        {str(key): _json_safe(value) for key, value in record.items()}
-        for record in frame.to_dict(orient="records")
+    columns = [
+        str(column)
+        for column in frame.columns
     ]
+
+    rows = [
+        {
+            str(key): _json_safe(value)
+            for key, value in record.items()
+        }
+        for record in frame.to_dict(
+            orient="records"
+        )
+    ]
+
     return QueryResult(
         columns=columns,
         rows=rows,
         row_count=len(rows),
-        execution_duration_ms=round((perf_counter() - started) * 1000),
+        execution_duration_ms=round(
+            (perf_counter() - started) * 1000
+        ),
     )
