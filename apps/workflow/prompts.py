@@ -54,17 +54,17 @@ Use exactly this schema:
 
 {
   "chart_type": "line|bar|scatter|area|histogram|box|heatmap",
-  "x": "column or null",
+  "x": "column",
   "y": ["column"],
   "group_by": "column or null",
   "title": "title",
-  "x_label": "label or null",
-  "y_label": "label or null",
+  "x_label": "label",
+  "y_label": "label",
   "reference_lines": [1.0]
 }
 
 Rules:
-- "x" must be one column name or null.
+- "x" must be one column name.
 - "y" must be a list of valid dataset columns.
 - "group_by" must be one valid column name or null.
 - Use only columns that exist in the approved dataset.
